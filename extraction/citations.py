@@ -17,6 +17,11 @@ _FIRST_SURNAME = re.compile(r"^([A-Z][a-zA-Z\-']+)")
 _AUTHOR_YEAR = re.compile(r"([A-Z][a-zA-Z\-']+)\s+et al\.?,?\s*\(?((?:19|20)\d{2})")
 # "<authors>. <year>. <title>. <venue>" -> capture the title between the year and the next period.
 _TITLE_AFTER_YEAR = re.compile(r"(?:19|20)\d{2}[a-z]?\.\s*([^.]{8,200})\.")
+# Inline citation patterns used by fill_missing_citations
+_CITE_NUMERIC = re.compile(r"\[(\d+(?:[,;]\s*\d+)*)\]")
+_CITE_AUTHYEAR = re.compile(
+    r"([A-Z][a-zA-Z\-']+(?:\s+et\s+al\.?)?),?\s*\(?((?:19|20)\d{2})\)?"
+)
 
 
 @dataclass(frozen=True)
@@ -163,15 +168,131 @@ class CitationResolver:
         return None
 
 
+def _paper_body(markdown: str) -> str:
+    """Return the text before the References/Bibliography section."""
+    m = _REF_HEADING.search(markdown)
+    return markdown[:m.start()] if m else markdown
+
+
+# Patterns for "SubjectName [12]" or "SubjectName (Author, year)" in body text
+_GLOBAL_NUM_RE = re.compile(
+    r"([A-Z][A-Za-z0-9](?:[A-Za-z0-9\-\.]*(?:\s+[A-Za-z0-9\-\.]+){0,4})?)\s*\[(\d+)\]"
+)
+_GLOBAL_AUTH_RE = re.compile(
+    r"([A-Z][A-Za-z0-9](?:[A-Za-z0-9\-\.]*(?:\s+[A-Za-z0-9\-\.]+){0,4})?)"
+    r"\s*\(([A-Z][a-zA-Z\-']+(?:\s+et\s+al\.?)?,?\s*(?:19|20)\d{2})\)"
+)
+
+
+def _build_citation_map(body: str) -> dict[str, str]:
+    """Scan the entire paper body and map subject-name (lower) → citation marker.
+
+    Captures both "Name [n]" and "Name (Author, year)" styles.  First occurrence wins
+    (earlier mention is usually the defining/introducing one).
+    """
+    cmap: dict[str, str] = {}
+    for m in _GLOBAL_NUM_RE.finditer(body):
+        key = m.group(1).strip().lower()
+        if key and key not in cmap:
+            cmap[key] = f"[{m.group(2)}]"
+    for m in _GLOBAL_AUTH_RE.finditer(body):
+        key = m.group(1).strip().lower()
+        if key and key not in cmap:
+            cmap[key] = m.group(2).strip()
+    return cmap
+
+
+def fill_missing_citations(markdown: str, extractions: list[dict]) -> int:
+    """Regex post-processing: recover subject_citation markers the LLM missed.
+
+    Two-phase search for each baseline/ablation without a citation:
+    1. Local: scan a window around the extraction's char_interval for an adjacent marker.
+    2. Global: match against a citation map built from the whole paper body — catches
+       citations in related-work sections that are not adjacent to the results table.
+    """
+    body = _paper_body(markdown)
+    body_len = len(body)
+    cmap = _build_citation_map(body)
+    filled = 0
+
+    for ext in extractions:
+        attrs = ext.get("attributes") or {}
+        if attrs.get("subject_citation"):
+            continue
+        if attrs.get("role") not in ("baseline", "ablation"):
+            continue
+        subject = (attrs.get("subject") or "").strip()
+        if not subject:
+            continue
+
+        citation = ""
+
+        # Phase 1: local window search around the char_interval (skip if out-of-body)
+        ci = ext.get("char_interval") or {}
+        raw_mid = ci.get("start_pos") or 0
+        if raw_mid < body_len:
+            citation = _find_citation_near_subject(body, subject, raw_mid, radius=600)
+
+        # Phase 2: global citation map lookup
+        if not citation:
+            citation = cmap.get(subject.lower(), "")
+            # Fuzzy: try longest token of multi-word names (e.g. "BEVFormer" from "BEVFormer (large)")
+            if not citation and " " in subject:
+                for token in subject.split():
+                    if len(token) >= 5:
+                        citation = cmap.get(token.lower(), "")
+                        if citation:
+                            break
+
+        if citation:
+            attrs["subject_citation"] = citation
+            filled += 1
+
+    return filled
+
+
+def _find_citation_near_subject(body: str, subject: str, mid: int, radius: int) -> str:
+    """Search for a citation marker within `radius` chars of `mid`, near the subject name."""
+    window_start = max(0, mid - radius)
+    window_end = min(len(body), mid + radius)
+    window = body[window_start:window_end]
+
+    subj_pat = re.compile(re.escape(subject), re.I)
+    subj_m = subj_pat.search(window)
+    if not subj_m and " " in subject:
+        first = subject.split()[0]
+        if len(first) >= 4:
+            subj_m = re.compile(re.escape(first), re.I).search(window)
+    if not subj_m:
+        return ""
+
+    s, e = subj_m.start(), subj_m.end()
+    vicinity = window[max(0, s - 30): e + 120]
+
+    num = _CITE_NUMERIC.search(vicinity)
+    if num:
+        return f"[{num.group(1)}]"
+    auth = _CITE_AUTHYEAR.search(vicinity)
+    if auth:
+        return f"{auth.group(1)}, {auth.group(2)}"
+    return ""
+
+
 def enrich_jsonl(markdown: str, jsonl_path: Path, resolver: CitationResolver) -> int:
-    """Add subject_arxiv_id / subject_arxiv_url / subject_ref to each extraction in place."""
+    """Fill subject_citation markers (regex), then resolve to arxiv IDs via bib + HF API."""
     lines = jsonl_path.read_text(encoding="utf-8").splitlines()
     if not lines:
         return 0
     doc = json.loads(lines[0])
+    extractions = doc.get("extractions", [])
     bib = BibliographyParser().parse(markdown)
+
+    # Step 1: regex pass to recover citation markers the LLM missed
+    fill_missing_citations(markdown, extractions)
+
+    # Step 2: resolve each citation marker to arxiv id / url / ref text
     n = 0
-    for ext in doc.get("extractions", []):
+    for ext in extractions:
         attrs = ext.setdefault("attributes", {})
         subject, citation = attrs.get("subject", ""), attrs.get("subject_citation", "")
         if not subject or not (bib or resolver.hf):
@@ -180,5 +301,6 @@ def enrich_jsonl(markdown: str, jsonl_path: Path, resolver: CitationResolver) ->
         if resolved["subject_arxiv_id"] or resolved["subject_ref"]:
             attrs.update(resolved)
             n += 1
+
     jsonl_path.write_text(json.dumps(doc, ensure_ascii=False) + "\n", encoding="utf-8")
     return n

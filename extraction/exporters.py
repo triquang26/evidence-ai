@@ -17,6 +17,11 @@ _LEGEND_RE = re.compile(
     r".*(line|dashed|\(s\)|curve|bar)?",
     re.I,
 )
+# Additional noise patterns: scatter-plot labels, unnamed series, generic placeholders.
+_NOISE_RE = re.compile(
+    r"^(unlabeled|unnamed|unknown|scatter|series\s*\d*|group\s*\d*|item\s*\d*)\b",
+    re.I,
+)
 
 
 _LATEX = {r"\times": "x", r"\mathcal{O}": "O", r"\log": "log", r"\approx": "~", r"\sim": "~",
@@ -35,6 +40,8 @@ def _clean(value: str) -> str:
 def _is_noise_subject(subject: str) -> bool:
     s = (subject or "").strip().lower()
     if s in _EMPTY:
+        return True
+    if _NOISE_RE.match(s):
         return True
     return bool(_LEGEND_RE.match(s)) and any(w in s for w in ("line", "dashed", "(s)", "curve", "bar"))
 
