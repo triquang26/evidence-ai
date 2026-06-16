@@ -5,12 +5,27 @@ import re
 
 from .config import Config
 
+_PREPRINT_SINCE = 2022
+
 
 def _norm_title(t: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (t or "").lower())
 
 
+def _year_from_arxiv_id(arxiv_id: str) -> int | None:
+    """2206.xxxxx → 2022,  9901.xxxxx → 1999"""
+    if not arxiv_id or len(arxiv_id) < 4:
+        return None
+    try:
+        yy = int(arxiv_id[:2])
+        return 2000 + yy if yy <= 30 else 1900 + yy
+    except ValueError:
+        return None
+
+
 class Deduplicator:
+    _YR_RE = re.compile(r"\b(199\d|20[012]\d)\b")
+
     def __init__(self, config: Config):
         self.config = config
 
@@ -29,18 +44,25 @@ class Deduplicator:
                 by_key[key] = dict(r)
 
         papers = list(by_key.values())
-        papers = self._filter_venue(papers)
+        papers = self._filter(papers)
         self._tag(papers)
-        papers.sort(key=lambda p: self._year(p), reverse=True)
+        papers.sort(key=self._sort_year, reverse=True)
         return papers
 
     def _is_relevant(self, text: str) -> bool:
-        t = text.lower()
-        return any(k in t for k in self.config.keep_keywords)
+        return any(k in text.lower() for k in self.config.keep_keywords)
 
     @staticmethod
-    def _filter_venue(papers: list[dict]) -> list[dict]:
-        return [p for p in papers if p.get("venue")]
+    def _filter(papers: list[dict]) -> list[dict]:
+        kept = []
+        for p in papers:
+            if p.get("venue"):
+                kept.append(p)
+                continue
+            y = _year_from_arxiv_id(p.get("arxiv_id") or "")
+            if y and y >= _PREPRINT_SINCE:
+                kept.append(p)
+        return kept
 
     @staticmethod
     def _tag(papers: list[dict]) -> None:
@@ -48,13 +70,15 @@ class Deduplicator:
             tags = []
             if p.get("venue") and p.get("is_survey"):
                 tags.append("survey+venue")
+            if not p.get("venue"):
+                tags.append("preprint")
             p["tags"] = tags
 
-    _YR_RE = re.compile(r"\b(199\d|20[012]\d)\b")
-
-    def _year(self, p: dict) -> int:
+    def _sort_year(self, p: dict) -> int:
         matches = self._YR_RE.findall(p.get("venue") or "")
-        return max((int(y) for y in matches), default=0)
+        if matches:
+            return max(int(y) for y in matches)
+        return _year_from_arxiv_id(p.get("arxiv_id") or "") or 0
 
     @staticmethod
     def _merge(cur: dict, new: dict) -> None:
@@ -94,12 +118,12 @@ class Exporter:
                 yr = yr_re.search(p.get("venue") or "")
                 w.writerow({
                     "title": p["title"],
-                    "venue": p.get("venue"),
+                    "venue": p.get("venue") or "",
                     "year_guess": yr.group(1) if yr else "",
-                    "arxiv_id": p.get("arxiv_id"),
-                    "doi": p.get("doi"),
-                    "url": p.get("url"),
+                    "arxiv_id": p.get("arxiv_id") or "",
+                    "doi": p.get("doi") or "",
+                    "url": p.get("url") or "",
                     "tags": ",".join(p.get("tags") or []),
-                    "source": p.get("source"),
+                    "source": p.get("source") or "",
                 })
         print(f"Saved: {path}")
