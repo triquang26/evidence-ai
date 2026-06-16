@@ -49,17 +49,20 @@ def _is_noise_subject(subject: str) -> bool:
 def _paper_context(extractions: list[dict]) -> dict[str, str]:
     """Collect paper-level context fields (hardware/framework/precision) from all extractions.
 
-    Records from the setup/training section carry hardware info; records from results tables
-    carry DV/task info. This merges them so every row can have both.
+    Only propagates a field when ALL records that mention it agree on the same value.
+    If two records disagree (e.g. "4x A100" vs "8x H100"), the field is NOT inherited —
+    the disagreement signals multiple experimental setups, so we cannot safely fill the rest.
     """
-    ctx: dict[str, str] = {}
+    # Map field → {lower-cased value → original value} to detect conflicts
+    seen: dict[str, dict[str, str]] = {f: {} for f in _CONTEXT_FIELDS}
     for ext in extractions:
         attrs = ext.get("attributes") or {}
         for f in _CONTEXT_FIELDS:
             v = (attrs.get(f) or "").strip()
-            if v and v.lower() not in _EMPTY and not ctx.get(f):
-                ctx[f] = v
-    return ctx
+            if v and v.lower() not in _EMPTY:
+                seen[f].setdefault(v.lower(), v)
+    # Only return fields with exactly one distinct value across the paper
+    return {f: next(iter(vals.values())) for f, vals in seen.items() if len(vals) == 1}
 # Provenance columns first so a downstream engine can re-fetch the paper PDF.
 _PROVENANCE = ["paper_id", "arxiv_id", "arxiv_url", "title"]
 

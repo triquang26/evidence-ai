@@ -17,11 +17,6 @@ _FIRST_SURNAME = re.compile(r"^([A-Z][a-zA-Z\-']+)")
 _AUTHOR_YEAR = re.compile(r"([A-Z][a-zA-Z\-']+)\s+et al\.?,?\s*\(?((?:19|20)\d{2})")
 # "<authors>. <year>. <title>. <venue>" -> capture the title between the year and the next period.
 _TITLE_AFTER_YEAR = re.compile(r"(?:19|20)\d{2}[a-z]?\.\s*([^.]{8,200})\.")
-# Inline citation patterns used by fill_missing_citations
-_CITE_NUMERIC = re.compile(r"\[(\d+(?:[,;]\s*\d+)*)\]")
-_CITE_AUTHYEAR = re.compile(
-    r"([A-Z][a-zA-Z\-']+(?:\s+et\s+al\.?)?),?\s*\(?((?:19|20)\d{2})\)?"
-)
 
 
 @dataclass(frozen=True)
@@ -38,7 +33,7 @@ class BibliographyParser:
     """Parse the References section of a parsed-markdown paper into BibEntry rows.
 
     Handles both numbered ("[12] ...") and author-year ("Author et al. 2022. Title...")
-    styles; each reference line/block becomes one entry.
+    styles; multi-line entries separated by blank lines are merged into one block.
     """
 
     def parse(self, markdown: str) -> list[BibEntry]:
@@ -48,14 +43,13 @@ class BibliographyParser:
         body = markdown[m.end():]
 
         # Merge continuation lines into reference blocks.
-        # A new block starts at: a blank line separator, a [n]/n. numbered marker, or the
-        # next section heading. This handles both single-line and multi-line bib formats.
+        # A new block starts at a blank line, a [n]/n. numbered marker, or a section heading.
         blocks: list[str] = []
         current: list[str] = []
         for line in body.splitlines():
             stripped = " ".join(line.split())
             if stripped.startswith("#"):
-                break  # next section
+                break
             if not stripped:
                 if current:
                     blocks.append(" ".join(current))
@@ -76,14 +70,14 @@ class BibliographyParser:
             idx = re.match(r"\[?(\d+)[\]\.]\s", chunk)
             body_txt = chunk[idx.end():] if idx else chunk
             first_author = re.split(r",| and ", body_txt)[0].strip()
-            # Strip "et al." so "Brown et al." yields surname "Brown", not "al."
+            # Strip "et al." so "Brown et al." → surname "Brown", not "al."
             clean_author = re.sub(r"\s+et\s+al\.?$", "", first_author, flags=re.I).strip()
             parts = (clean_author or first_author).split()
             surname = parts[-1] if parts else ""
             arxiv = _ARXIV_RE.search(chunk)
             year = _YEAR_RE.search(chunk)
             title_m = _TITLE_AFTER_YEAR.search(chunk)
-            # Reject venue fragments with fewer than 3 words ("Featured Certification", "arXiv preprint")
+            # Reject venue fragments with fewer than 3 words ("Featured Certification")
             raw_title = title_m.group(1).strip() if title_m else ""
             title = raw_title if len(raw_title.split()) >= 3 else ""
             entries.append(BibEntry(
@@ -128,18 +122,34 @@ class HFPapersClient:
 
 
 class CitationResolver:
-    """Map a subject's inline citation to the cited paper's arxiv id / url."""
+    """Map an LLM-extracted citation marker to the cited paper's arxiv id / url / ref text.
+
+    Only resolves markers that the LLM explicitly extracted as subject_citation.
+    No guessing, no fallbacks based on subject name alone.
+    """
 
     def __init__(self, hf_client: HFPapersClient | None = None):
         self.hf = hf_client
 
-    def resolve(self, subject: str, citation: str, bib: list[BibEntry]) -> dict:
-        entry = self._match(subject, citation, bib)
+    def resolve(self, citation: str, bib: list[BibEntry]) -> dict:
+        """Resolve a citation marker to arxiv metadata.
+
+        Args:
+            citation: the exact marker the LLM extracted, e.g. "[12]" or "Brown et al., 2020"
+            bib: parsed bibliography of the paper
+
+        Returns dict with subject_arxiv_id, subject_arxiv_url, subject_ref.
+        All values are empty string if unresolvable — never None.
+        """
+        entry = self._match_bib(citation, bib)
         arxiv_id = entry.arxiv_id if entry else ""
         title = (entry.title or "") if entry else ""
         ref_text = (entry.text or "") if entry else ""
+
+        # If bib entry has no embedded arxiv id, try HF Papers search by title
         if not arxiv_id and self.hf and title:
             arxiv_id = self.hf.title_to_arxiv(title)
+
         return {
             "subject_arxiv_id": arxiv_id,
             "subject_arxiv_url": f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else "",
@@ -147,139 +157,44 @@ class CitationResolver:
         }
 
     @staticmethod
-    def _match(subject: str, citation: str, bib: list[BibEntry]) -> BibEntry | None:
+    def _match_bib(citation: str, bib: list[BibEntry]) -> BibEntry | None:
+        """Match a citation marker to a bibliography entry.
+
+        Supports:
+        - Numeric: "[12]" or "12" → entry whose index == "12"
+        - Author-year: "Brown et al., 2020" or "Brown 2020" → entry with matching surname + year
+        Returns None if no match; never falls back on subject name.
+        """
         cite = (citation or "").strip()
-        if re.match(r"\[?\d", cite):  # numeric citation [12] -> bib entry with that index
+        if not cite:
+            return None
+
+        # Numeric citation: [12] or bare 12
+        if re.match(r"\[?\d", cite):
             num = re.findall(r"\d+", cite)[0]
             for e in bib:
                 if e.index == num:
                     return e
+            return None  # numeric but not found — don't fall through to author-year
+
+        # Author-year citation
         ay = _AUTHOR_YEAR.search(cite) or _FIRST_SURNAME.match(cite)
         year = re.search(r"(?:19|20)\d{2}", cite)
-        if ay:  # "Author et al., 2022" -> entry with that surname (+ year if given)
+        if ay:
             surname = ay.group(1).lower()
             for e in bib:
                 if e.surname.lower() == surname and (not year or year.group(0) == e.year):
                     return e
-        if subject:  # fall back: subject name appears verbatim in an entry
-            for e in bib:
-                if subject.lower() in e.text.lower():
-                    return e
+
         return None
 
 
-def _paper_body(markdown: str) -> str:
-    """Return the text before the References/Bibliography section."""
-    m = _REF_HEADING.search(markdown)
-    return markdown[:m.start()] if m else markdown
-
-
-# Patterns for "SubjectName [12]" or "SubjectName (Author, year)" in body text
-_GLOBAL_NUM_RE = re.compile(
-    r"([A-Z][A-Za-z0-9](?:[A-Za-z0-9\-\.]*(?:\s+[A-Za-z0-9\-\.]+){0,4})?)\s*\[(\d+)\]"
-)
-_GLOBAL_AUTH_RE = re.compile(
-    r"([A-Z][A-Za-z0-9](?:[A-Za-z0-9\-\.]*(?:\s+[A-Za-z0-9\-\.]+){0,4})?)"
-    r"\s*\(([A-Z][a-zA-Z\-']+(?:\s+et\s+al\.?)?,?\s*(?:19|20)\d{2})\)"
-)
-
-
-def _build_citation_map(body: str) -> dict[str, str]:
-    """Scan the entire paper body and map subject-name (lower) → citation marker.
-
-    Captures both "Name [n]" and "Name (Author, year)" styles.  First occurrence wins
-    (earlier mention is usually the defining/introducing one).
-    """
-    cmap: dict[str, str] = {}
-    for m in _GLOBAL_NUM_RE.finditer(body):
-        key = m.group(1).strip().lower()
-        if key and key not in cmap:
-            cmap[key] = f"[{m.group(2)}]"
-    for m in _GLOBAL_AUTH_RE.finditer(body):
-        key = m.group(1).strip().lower()
-        if key and key not in cmap:
-            cmap[key] = m.group(2).strip()
-    return cmap
-
-
-def fill_missing_citations(markdown: str, extractions: list[dict]) -> int:
-    """Regex post-processing: recover subject_citation markers the LLM missed.
-
-    Two-phase search for each baseline/ablation without a citation:
-    1. Local: scan a window around the extraction's char_interval for an adjacent marker.
-    2. Global: match against a citation map built from the whole paper body — catches
-       citations in related-work sections that are not adjacent to the results table.
-    """
-    body = _paper_body(markdown)
-    body_len = len(body)
-    cmap = _build_citation_map(body)
-    filled = 0
-
-    for ext in extractions:
-        attrs = ext.get("attributes") or {}
-        if attrs.get("subject_citation"):
-            continue
-        if attrs.get("role") not in ("baseline", "ablation"):
-            continue
-        subject = (attrs.get("subject") or "").strip()
-        if not subject:
-            continue
-
-        citation = ""
-
-        # Phase 1: local window search around the char_interval (skip if out-of-body)
-        ci = ext.get("char_interval") or {}
-        raw_mid = ci.get("start_pos") or 0
-        if raw_mid < body_len:
-            citation = _find_citation_near_subject(body, subject, raw_mid, radius=600)
-
-        # Phase 2: global citation map lookup
-        if not citation:
-            citation = cmap.get(subject.lower(), "")
-            # Fuzzy: try longest token of multi-word names (e.g. "BEVFormer" from "BEVFormer (large)")
-            if not citation and " " in subject:
-                for token in subject.split():
-                    if len(token) >= 5:
-                        citation = cmap.get(token.lower(), "")
-                        if citation:
-                            break
-
-        if citation:
-            attrs["subject_citation"] = citation
-            filled += 1
-
-    return filled
-
-
-def _find_citation_near_subject(body: str, subject: str, mid: int, radius: int) -> str:
-    """Search for a citation marker within `radius` chars of `mid`, near the subject name."""
-    window_start = max(0, mid - radius)
-    window_end = min(len(body), mid + radius)
-    window = body[window_start:window_end]
-
-    subj_pat = re.compile(re.escape(subject), re.I)
-    subj_m = subj_pat.search(window)
-    if not subj_m and " " in subject:
-        first = subject.split()[0]
-        if len(first) >= 4:
-            subj_m = re.compile(re.escape(first), re.I).search(window)
-    if not subj_m:
-        return ""
-
-    s, e = subj_m.start(), subj_m.end()
-    vicinity = window[max(0, s - 30): e + 120]
-
-    num = _CITE_NUMERIC.search(vicinity)
-    if num:
-        return f"[{num.group(1)}]"
-    auth = _CITE_AUTHYEAR.search(vicinity)
-    if auth:
-        return f"{auth.group(1)}, {auth.group(2)}"
-    return ""
-
-
 def enrich_jsonl(markdown: str, jsonl_path: Path, resolver: CitationResolver) -> int:
-    """Fill subject_citation markers (regex), then resolve to arxiv IDs via bib + HF API."""
+    """Resolve LLM-extracted subject_citation markers to arxiv IDs.
+
+    Only processes extractions where the LLM set subject_citation explicitly.
+    Does NOT attempt to guess or fill missing citations — that would introduce noise.
+    """
     lines = jsonl_path.read_text(encoding="utf-8").splitlines()
     if not lines:
         return 0
@@ -287,17 +202,13 @@ def enrich_jsonl(markdown: str, jsonl_path: Path, resolver: CitationResolver) ->
     extractions = doc.get("extractions", [])
     bib = BibliographyParser().parse(markdown)
 
-    # Step 1: regex pass to recover citation markers the LLM missed
-    fill_missing_citations(markdown, extractions)
-
-    # Step 2: resolve each citation marker to arxiv id / url / ref text
     n = 0
     for ext in extractions:
         attrs = ext.setdefault("attributes", {})
-        subject, citation = attrs.get("subject", ""), attrs.get("subject_citation", "")
-        if not subject or not (bib or resolver.hf):
-            continue
-        resolved = resolver.resolve(subject, citation, bib)
+        citation = attrs.get("subject_citation", "")
+        if not citation:
+            continue  # only resolve what the LLM explicitly extracted
+        resolved = resolver.resolve(citation, bib)
         if resolved["subject_arxiv_id"] or resolved["subject_ref"]:
             attrs.update(resolved)
             n += 1
