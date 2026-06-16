@@ -77,14 +77,17 @@ class BibliographyParser:
             surname = parts[-1] if parts else ""
             arxiv = _ARXIV_RE.search(chunk)
             year = _YEAR_RE.search(chunk)
-            title = _TITLE_AFTER_YEAR.search(chunk)
+            title_m = _TITLE_AFTER_YEAR.search(chunk)
+            # Reject venue fragments with fewer than 3 words ("Featured Certification", "arXiv preprint")
+            raw_title = title_m.group(1).strip() if title_m else ""
+            title = raw_title if len(raw_title.split()) >= 3 else ""
             entries.append(BibEntry(
                 index=idx.group(1) if idx else None,
                 surname=surname,
                 year=year.group(0)[:4] if year else "",
                 arxiv_id=arxiv.group(1) if arxiv else "",
-                title=title.group(1).strip() if title else "",
-                text=chunk[:400],
+                title=title,
+                text=chunk[:800],
             ))
         return entries
 
@@ -106,9 +109,12 @@ class HFPapersClient:
             resp = requests.get(_HF_PAPERS_URL, params={"q": title}, headers=UA, timeout=20)
             resp.raise_for_status()
             for p in resp.json()[:5]:
-                ratio = difflib.SequenceMatcher(None, title.lower(), (p.get("title") or "").lower()).ratio()
-                if ratio >= 0.6 and p.get("id"):
-                    arxiv_id = p["id"]
+                # Response shape: {"title": "...", "paper": {"id": "2304.xxxx", ...}, ...}
+                p_title = (p.get("title") or p.get("paper", {}).get("title") or "").lower()
+                p_id = p.get("paper", {}).get("id") or p.get("id") or ""
+                ratio = difflib.SequenceMatcher(None, title.lower(), p_title).ratio()
+                if ratio >= 0.6 and p_id:
+                    arxiv_id = p_id
                     break
         except Exception:
             arxiv_id = ""
@@ -125,13 +131,14 @@ class CitationResolver:
     def resolve(self, subject: str, citation: str, bib: list[BibEntry]) -> dict:
         entry = self._match(subject, citation, bib)
         arxiv_id = entry.arxiv_id if entry else ""
-        title = (entry.title or entry.text) if entry else ""
+        title = (entry.title or "") if entry else ""
+        ref_text = (entry.text or "") if entry else ""
         if not arxiv_id and self.hf and title:
             arxiv_id = self.hf.title_to_arxiv(title)
         return {
             "subject_arxiv_id": arxiv_id,
             "subject_arxiv_url": f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else "",
-            "subject_ref": title[:200] if title else "",
+            "subject_ref": (title or ref_text)[:200],
         }
 
     @staticmethod
