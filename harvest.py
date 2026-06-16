@@ -3,8 +3,9 @@
 Harvest ~2000 time-series anomaly-detection / forecasting papers.
 
 Sources (in order):
-  A. Awesome GitHub lists   — curated, venue-labelled
-  B. HuggingFace Papers API — mirrors arXiv, accessible behind firewall
+  A. Awesome GitHub lists        — curated, venue-labelled
+  B. HuggingFace Papers API      — mirrors arXiv, accessible behind firewall
+  C. arXiv full snapshot (HF)    — Cornell/arxiv via HF streaming, filtered by cat+keyword
 
 Usage:
     python harvest.py                   # harvest -> outputs/papers.jsonl + .csv
@@ -19,6 +20,7 @@ After harvest, sync to HuggingFace bucket:
 import argparse
 from pathlib import Path
 
+from harvester.arxiv_hf_scraper import ArxivHFScraper
 from harvester.config import Config
 from harvester.downloader import PDFDownloader
 from harvester.hf_papers_scraper import HFPapersScraper
@@ -27,9 +29,10 @@ from harvester.scraper import AwesomeScraper
 
 
 class Harvester:
-    def __init__(self, config: Config, hf_max_per_query: int = 1000):
+    def __init__(self, config: Config, hf_max_per_query: int = 1000, arxiv_max: int = 5000):
         self.config = config
         self.hf_max_per_query = hf_max_per_query
+        self.arxiv_max = arxiv_max
         self._dedup = Deduplicator(config)
         self._exporter = Exporter(config)
 
@@ -41,6 +44,9 @@ class Harvester:
 
         print("[B] HuggingFace Papers ...")
         raw += HFPapersScraper(self.config, max_per_query=self.hf_max_per_query).harvest()
+
+        print("[C] arXiv full snapshot (HF streaming) ...")
+        raw += ArxivHFScraper(self.config, max_papers=self.arxiv_max).harvest()
 
         print(f"\nRaw total: {len(raw)}")
         papers = self._dedup.run(raw)
@@ -65,6 +71,8 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--pdfs", action="store_true", help="Download PDFs after harvest")
     ap.add_argument("--max", type=int, default=1000, dest="max_per_query",
                     help="Max results per HF-papers query (default: 1000)")
+    ap.add_argument("--arxiv-max", type=int, default=5000,
+                    help="Max papers from arXiv HF snapshot (default: 5000)")
     ap.add_argument("--out", default="outputs", help="Output directory (default: outputs)")
     return ap.parse_args()
 
@@ -75,7 +83,7 @@ def main() -> None:
         out_dir=Path(args.out),
         pdf_dir=Path(args.out) / "pdfs",
     )
-    Harvester(config, hf_max_per_query=args.max_per_query).run(
+    Harvester(config, hf_max_per_query=args.max_per_query, arxiv_max=args.arxiv_max).run(
         download_pdfs=args.pdfs,
     )
 
