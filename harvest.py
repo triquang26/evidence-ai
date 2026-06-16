@@ -2,41 +2,45 @@
 """
 Harvest ~2000 time-series anomaly-detection / forecasting papers.
 
+Sources (in order):
+  A. Awesome GitHub lists   — curated, venue-labelled
+  B. HuggingFace Papers API — mirrors arXiv, accessible behind firewall
+
 Usage:
     python harvest.py                   # harvest -> outputs/papers.jsonl + .csv
     python harvest.py --pdfs            # also download PDFs to outputs/pdfs/
-    python harvest.py --no-arxiv        # skip arXiv (awesome-lists only)
-    python harvest.py --max 500         # limit per arXiv query (default 300)
+    python harvest.py --max 1000        # limit per HF-papers query (default 1000)
+    python harvest.py --out my_outputs  # custom output directory
 
 After harvest, sync to HuggingFace bucket:
     python sync_to_hf.py --src outputs --dst papers/v1
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 from harvester.config import Config
 from harvester.downloader import PDFDownloader
+from harvester.hf_papers_scraper import HFPapersScraper
 from harvester.pipeline import Deduplicator, Exporter
-from harvester.scraper import ArxivScraper, AwesomeScraper
+from harvester.scraper import AwesomeScraper
 
 
 class Harvester:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, hf_max_per_query: int = 1000):
         self.config = config
+        self.hf_max_per_query = hf_max_per_query
         self._dedup = Deduplicator(config)
         self._exporter = Exporter(config)
 
-    def run(self, use_arxiv: bool = True, download_pdfs: bool = False) -> list[dict]:
+    def run(self, download_pdfs: bool = False) -> list[dict]:
         raw: list[dict] = []
 
         print("[A] Awesome-lists ...")
         raw += AwesomeScraper(self.config).harvest()
 
-        if use_arxiv:
-            print("[B] arXiv ...")
-            raw += ArxivScraper(self.config).harvest()
+        print("[B] HuggingFace Papers ...")
+        raw += HFPapersScraper(self.config, max_per_query=self.hf_max_per_query).harvest()
 
         print(f"\nRaw total: {len(raw)}")
         papers = self._dedup.run(raw)
@@ -59,9 +63,8 @@ class Harvester:
 def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Harvest time-series papers")
     ap.add_argument("--pdfs", action="store_true", help="Download PDFs after harvest")
-    ap.add_argument("--no-arxiv", action="store_true", help="Skip arXiv source")
-    ap.add_argument("--max", type=int, default=300, dest="max_per_query",
-                    help="Max results per arXiv query (default: 300)")
+    ap.add_argument("--max", type=int, default=1000, dest="max_per_query",
+                    help="Max results per HF-papers query (default: 1000)")
     ap.add_argument("--out", default="outputs", help="Output directory (default: outputs)")
     return ap.parse_args()
 
@@ -71,10 +74,8 @@ def main() -> None:
     config = Config(
         out_dir=Path(args.out),
         pdf_dir=Path(args.out) / "pdfs",
-        arxiv_max_per_query=args.max_per_query,
     )
-    Harvester(config).run(
-        use_arxiv=not args.no_arxiv,
+    Harvester(config, hf_max_per_query=args.max_per_query).run(
         download_pdfs=args.pdfs,
     )
 
