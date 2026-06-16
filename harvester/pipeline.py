@@ -45,8 +45,8 @@ class Deduplicator:
     def _tag(papers: list[dict]) -> None:
         for p in papers:
             tags = []
-            if p.get("is_survey"):
-                tags.append("survey")
+            if p.get("venue") and p.get("is_survey"):
+                tags.append("survey+venue")
             p["tags"] = tags
 
     @staticmethod
