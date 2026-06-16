@@ -8,6 +8,8 @@ from pathlib import Path
 from .schemas import get_schema
 
 _EMPTY = {"", "none", "n/a", "not specified", "not mentioned", "none reported", "0"}
+# Fields that are experiment-wide: if ANY record in the paper has them, propagate to all records.
+_CONTEXT_FIELDS = ("compute_hardware", "system_framework", "system_precision", "compute_budget")
 _ARXIV_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
 # Drop figure-legend artifacts the model sometimes emits as "subjects" (e.g. "Purple Line").
 _LEGEND_RE = re.compile(
@@ -35,16 +37,40 @@ def _is_noise_subject(subject: str) -> bool:
     if s in _EMPTY:
         return True
     return bool(_LEGEND_RE.match(s)) and any(w in s for w in ("line", "dashed", "(s)", "curve", "bar"))
+
+
+def _paper_context(extractions: list[dict]) -> dict[str, str]:
+    """Collect paper-level context fields (hardware/framework/precision) from all extractions.
+
+    Records from the setup/training section carry hardware info; records from results tables
+    carry DV/task info. This merges them so every row can have both.
+    """
+    ctx: dict[str, str] = {}
+    for ext in extractions:
+        attrs = ext.get("attributes") or {}
+        for f in _CONTEXT_FIELDS:
+            v = (attrs.get(f) or "").strip()
+            if v and v.lower() not in _EMPTY and not ctx.get(f):
+                ctx[f] = v
+    return ctx
 # Provenance columns first so a downstream engine can re-fetch the paper PDF.
 _PROVENANCE = ["paper_id", "arxiv_id", "arxiv_url", "title"]
 
 
 def _is_real(extraction: dict) -> bool:
-    """Keep only grounded, non-placeholder spans (anti-hallucination filter)."""
+    """Keep only well-grounded, non-placeholder spans (anti-hallucination filter).
+
+    Rejects spans whose aligned character range is far shorter than the quoted text —
+    that signals a poor/failed alignment (often few-shot leakage), not a real quote.
+    """
     text = (extraction.get("extraction_text") or "").strip()
     if text.lower() in _EMPTY:
         return False
-    return extraction.get("char_interval") is not None
+    ci = extraction.get("char_interval")
+    if ci is None or ci.get("start_pos") is None or ci.get("end_pos") is None:
+        return False
+    span = ci["end_pos"] - ci["start_pos"]
+    return span >= 0.5 * len(text)
 
 
 def _provenance(rec: dict) -> dict:
@@ -91,7 +117,9 @@ class CsvExporter:
             prov = _provenance(rec)
             extractions = self._load(Path(jsonl))
             if self.schema.row_per_record:
-                rows_main.extend(self._record_rows(prov, extractions))
+                paper_rows = self._record_rows(prov, extractions)
+                rows_main.extend(paper_rows)
+                self._write_paper_card(run_dir / "papers", prov, paper_rows)
             else:
                 rows_main.append(self._paper_row(prov, extractions))
             rows_long.extend(self._long_rows(prov, extractions))
@@ -109,7 +137,22 @@ class CsvExporter:
         )
         return evidence, long
 
+    def _write_paper_card(self, papers_dir: Path, prov: dict, rows: list[dict]) -> Path:
+        """One self-contained JSON per paper: provenance + its evidence records (nested)."""
+        papers_dir.mkdir(parents=True, exist_ok=True)
+        records = []
+        for r in rows:
+            rec = {c: r[c] for c in self.columns if r.get(c)}
+            rec["source"] = {"text": r.get("extraction_text"),
+                             "char_start": r.get("char_start"), "char_end": r.get("char_end")}
+            records.append(rec)
+        card = {**prov, "schema": self.schema.name, "n_records": len(records), "records": records}
+        target = papers_dir / f"{prov['paper_id']}.json"
+        target.write_text(json.dumps(card, indent=2, ensure_ascii=False), encoding="utf-8")
+        return target
+
     def _record_rows(self, prov: dict, extractions: list[dict]) -> list[dict]:
+        ctx = _paper_context(extractions)
         rows = []
         for ext in extractions:
             if not _is_real(ext):
@@ -119,7 +162,9 @@ class CsvExporter:
                 continue  # no subject / figure-legend artifact -> not comparable
             ci = ext.get("char_interval") or {}
             row = dict(prov)
-            row.update({c: _clean(attrs.get(c, "")) for c in self.columns})
+            # For sparse context fields, fall back to paper-level context so a results-table
+            # record inherits hardware/framework even when those were in the setup section.
+            row.update({c: _clean(attrs.get(c, "") or ctx.get(c, "")) for c in self.columns})
             row.update({
                 "extraction_text": ext.get("extraction_text"),
                 "char_start": ci.get("start_pos"), "char_end": ci.get("end_pos"),

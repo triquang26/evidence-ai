@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from .audit import AuditReporter
+from .citations import CitationResolver, HFPapersClient, enrich_jsonl
 from .config import PipelineConfig
 from .exporters import CsvExporter, build_corpus_comparison
 from .factory import build_extractor, build_parser, build_validator
@@ -92,6 +93,7 @@ class ExtractionPipeline:
         extractor = build_extractor(self.cfg)
         validator = build_validator(self.cfg)
         auditor = AuditReporter()
+        resolver = CitationResolver(HFPapersClient() if self.cfg.resolve_citations else None)
         with VLLMServer(self.cfg.server, self.cfg.extractor):
             for pid, markdown in parsed:
                 rec = records[pid]
@@ -104,6 +106,8 @@ class ExtractionPipeline:
                 rec["status"] = "extracted"
                 rec["extracted"] = str(ex.jsonl_path)
                 rec["n_extractions"] = ex.n_extractions
+                with self.timer("resolve"):
+                    rec["resolved_subjects"] = enrich_jsonl(markdown, ex.jsonl_path, resolver)
                 if validator:
                     vpath = validator.validate(markdown, pid, self.cfg.validated_dir)
                     rec["validated"] = str(vpath) if vpath else None

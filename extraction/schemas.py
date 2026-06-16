@@ -107,12 +107,20 @@ _EVIDENCE_PROMPT = textwrap.dedent("""\
     Each record follows the evaluation architecture:
       - subject: the system/method/model the figure is about (REQUIRED; never report a value without it)
       - role: proposed | baseline | ablation
+      - subject_citation: if the subject is a cited prior work, copy its EXACT citation marker as
+        it appears in text — look immediately before/after the subject name.
+        Numeric style:     "GPT-4o [14]"              → subject_citation = "[14]"
+        Author-year style: "LLaMA (Brown et al., 2020)" → subject_citation = "Brown et al., 2020"
+        Omit ONLY for the paper's own proposed method. ALWAYS fill this for baselines and
+        ablations that originate from other papers.
       - dv_name / dv_value: the measured outcome = the efficiency OF the subject (throughput,
         latency, GPU-hours, FLOPs, memory, accuracy, ...) and its value with unit
       - iv_name / iv_value: what was varied to cause the change (batch size, model size, hardware)
       - task_dataset: the task / benchmark / dataset it was measured on
       - system_framework / system_precision: system configuration (framework/library; precision/parallelism)
-      - compute_hardware / compute_budget: computational resources (GPU type & count; GPU-hours / time / cost)
+      - compute_hardware / compute_budget: computational resources (GPU type & count; GPU-hours / time / cost).
+        If a table caption or experimental paragraph states hardware for the whole experiment
+        (e.g. "All models run on 2×A100 80GB"), include it in EVERY record from that experiment.
       - claim: a comparative claim if stated ("X is better than Y at task Z on metric M")
       - threats: stated assumptions or limitations ("single seed", "only 1 epoch")
 
@@ -168,10 +176,51 @@ _EVIDENCE_EXAMPLES = [
             ),
             lx.data.Extraction(
                 extraction_class="evidence_record",
-                extraction_text="1.2 Hz for the BEVFormer baseline",
+                extraction_text="1.2 Hz for the BEVFormer (Li et al., 2022) baseline",
                 attributes={
-                    "subject": "BEVFormer", "role": "baseline",
+                    "subject": "BEVFormer", "role": "baseline", "subject_citation": "Li et al., 2022",
                     "dv_name": "inference latency", "dv_value": "1.2 Hz", "task_dataset": "ImageNet",
+                },
+            ),
+        ],
+    ),
+    lx.data.ExampleData(
+        text=(
+            "Table 3: Accuracy (%) and throughput on MMLU (5-shot). All models evaluated on 2×A100 80GB. "
+            "Nova-7B (ours): 72.4%, 4800 tok/s. "
+            "GPT-3.5-Turbo (OpenAI, 2022): 70.1%. "
+            "LLaMA-2-7B [13]: 63.8%, 3400 tok/s. "
+            "Nova-7B outperforms all baselines."
+        ),
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="evidence_record",
+                extraction_text="Nova-7B (ours): 72.4%, 4800 tok/s",
+                attributes={
+                    "subject": "Nova-7B", "role": "proposed",
+                    "dv_name": "MMLU accuracy", "dv_value": "72.4%",
+                    "task_dataset": "MMLU (5-shot)", "compute_hardware": "2x A100 80GB",
+                    "claim": "Nova-7B outperforms GPT-3.5-Turbo and LLaMA-2-7B on MMLU",
+                },
+            ),
+            lx.data.Extraction(
+                extraction_class="evidence_record",
+                extraction_text="GPT-3.5-Turbo (OpenAI, 2022): 70.1%",
+                attributes={
+                    "subject": "GPT-3.5-Turbo", "role": "baseline",
+                    "subject_citation": "OpenAI, 2022",
+                    "dv_name": "MMLU accuracy", "dv_value": "70.1%",
+                    "task_dataset": "MMLU (5-shot)", "compute_hardware": "2x A100 80GB",
+                },
+            ),
+            lx.data.Extraction(
+                extraction_class="evidence_record",
+                extraction_text="LLaMA-2-7B [13]: 63.8%, 3400 tok/s",
+                attributes={
+                    "subject": "LLaMA-2-7B", "role": "baseline",
+                    "subject_citation": "[13]",
+                    "dv_name": "MMLU accuracy", "dv_value": "63.8%",
+                    "task_dataset": "MMLU (5-shot)", "compute_hardware": "2x A100 80GB",
                 },
             ),
         ],
@@ -179,10 +228,12 @@ _EVIDENCE_EXAMPLES = [
 ]
 
 _EVIDENCE_COLUMNS = (
-    "subject", "role", "task_dataset",
+    "subject", "role", "subject_citation", "task_dataset",
     "dv_name", "dv_value", "iv_name", "iv_value",
     "system_framework", "system_precision", "compute_hardware", "compute_budget",
     "claim", "threats",
+    # filled by the citation resolver (not the LLM): the subject's own source paper
+    "subject_ref", "subject_arxiv_id", "subject_arxiv_url",
 )
 
 _EVIDENCE_JSON_SCHEMA = {

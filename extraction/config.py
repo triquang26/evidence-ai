@@ -53,6 +53,7 @@ class ServerConfig:
 class PipelineConfig:
     run_name: str = "test_smoke"
     seed: int = 42
+    resolve_citations: bool = True  # link each subject/baseline to its own source paper (arxiv id)
     input_path: Path = REPO_ROOT / "test" / "papers" / "papers.jsonl"
     out_root: Path = REPO_ROOT / "outputs" / "extract"
     corpus_size: int = 5692  # for the full-corpus time projection
