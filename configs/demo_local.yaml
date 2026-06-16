@@ -1,0 +1,38 @@
+# Demo run on a firewalled host: PDFs already on disk (input_path is a dir),
+# extractor = a locally-cached model to avoid a 60GB download on a near-full disk.
+# Swap extractor.model_id back to Qwen/Qwen3-30B-A3B-Instruct for the real corpus run.
+run_name: laion_demo
+seed: 42
+input_path: /tmp/demo_pdfs        # directory of PDFs -> one paper per file
+out_root: outputs/extract
+corpus_size: 5692
+
+source:
+  kind: local
+  local_dir: /tmp/demo_pdfs
+
+parser:
+  backend: vlm-engine
+  model: opendatalab/MinerU2.5-Pro-2605-1.2B
+  server_url: null
+  extra_args: []
+
+extractor:
+  model_id: meta-llama/Meta-Llama-3-8B-Instruct   # cached; 8B, loads fast on the slow FS
+  base_url: http://localhost:8001/v1
+  api_key: EMPTY
+  schema: evidence_eval
+  extraction_passes: 2
+  max_workers: 8
+  max_char_buffer: 6000
+  fence_output: true
+  use_schema_constraints: false
+  guided_json: false
+
+server:
+  enabled: true
+  port: 8001
+  gpu_memory_utilization: 0.85
+  max_model_len: 8192
+  startup_timeout_s: 900
+  extra_args: ["--max-num-seqs", "16"]

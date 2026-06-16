@@ -1,0 +1,33 @@
+# Runtime config for the extraction pipeline. Edit here, not in code.
+# Override run_name / input_path / guided_json from the CLI (see extract_pipeline.py).
+run_name: test_smoke
+seed: 42
+input_path: test/papers/papers.jsonl
+out_root: outputs/extract
+corpus_size: 5692            # full outputs/papers.jsonl count, used for time projection
+
+parser:
+  backend: vlm-engine       # MinerU -b: pipeline|vlm-engine|hybrid-engine|vlm-http-client|hybrid-http-client
+  model: opendatalab/MinerU2.5-Pro-2605-1.2B
+  server_url: null          # set to use vlm-http-client against an external MinerU server
+  extra_args: []
+
+extractor:
+  model_id: Qwen/Qwen3-30B-A3B-Instruct
+  base_url: http://localhost:8001/v1
+  api_key: EMPTY
+  schema: evidence_eval
+  extraction_passes: 3
+  max_workers: 20
+  max_char_buffer: 8000
+  fence_output: true
+  use_schema_constraints: false
+  guided_json: false        # optional vLLM xgrammar JSON-validity layer
+
+server:
+  enabled: true             # pipeline starts/stops the Qwen vLLM server (sequential serving)
+  port: 8001
+  gpu_memory_utilization: 0.85
+  max_model_len: 32768
+  startup_timeout_s: 600
+  extra_args: []

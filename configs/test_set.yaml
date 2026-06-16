@@ -1,0 +1,41 @@
+# Real test-set run on the firewalled GPU box.
+# PDFs are fetched elsewhere (fetch_pdfs.py) and synced down from the bucket:
+#   hf sync hf://buckets/twanghcmut/evidence-ai/test/pdfs test_pdfs
+# Then: python extract_pipeline.py --config configs/test_set.yaml
+run_name: test_set
+seed: 42
+input_path: test_pdfs           # directory of <arxiv_id>.pdf synced from the bucket
+out_root: outputs/extract
+corpus_size: 5692
+
+source:
+  kind: local
+  local_dir: test_pdfs
+
+parser:
+  backend: vlm-engine
+  model: opendatalab/MinerU2.5-Pro-2605-1.2B
+  server_url: null
+  extra_args: []
+
+extractor:
+  # Qwen3-30B-A3B MoE (FP8): only ~3B active params -> ~8x faster than dense 32B at similar
+  # quality, and FP8 weights (~30GB) fit H100 with room for CUDA graphs + large batching.
+  model_id: Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+  base_url: http://localhost:8001/v1
+  api_key: EMPTY
+  schema: evidence_eval
+  extraction_passes: 1
+  max_workers: 16
+  max_char_buffer: 6000
+  fence_output: true
+  use_schema_constraints: false
+  guided_json: false
+
+server:
+  enabled: true
+  port: 8001
+  gpu_memory_utilization: 0.90
+  max_model_len: 8192
+  startup_timeout_s: 900
+  extra_args: ["--max-num-seqs", "16"]   # CUDA graphs on; MoE is light enough

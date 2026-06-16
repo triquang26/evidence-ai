@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "evidence-ai"
+version = "0.1.0"
+description = "Harvest ML papers and extract grounded system/compute/efficiency evidence (MinerU + LangExtract on vLLM)."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "mineru[all]>=3.0,<4.0",
+    "langextract[openai]>=1.5,<2.0",
+    # Host driver is CUDA 12.2 (535); cu126 is the forward-compat ceiling that runs on this H100.
+    # vllm 0.21 / torch 2.11 are cu130-only -> too new. Cap to the cu126-buildable range and
+    # install with `--torch-backend=cu126` (see [tool.uv] below and README).
+    "vllm>=0.10.1.1,<0.21",
+    "torch>=2.6,<2.9",
+    "huggingface_hub[cli]>=0.24",
+    "requests>=2.31",
+    "datasets>=2.19",
+    "pymupdf>=1.24",
+    "openai>=1.30",
+    "pyyaml>=6.0",
+]
+
+[tool.uv]
+torch-backend = "cu126"
+
+[project.scripts]
+evidence-harvest = "harvest:main"
+evidence-extract = "extract_pipeline:main"
+
+[tool.setuptools]
+py-modules = ["harvest", "extract_pipeline", "sync_to_hf"]
+
+[tool.setuptools.packages.find]
+include = ["harvester*", "extraction*"]

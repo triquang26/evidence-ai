@@ -1,0 +1,32 @@
+# Conda env for evidence-ai. NOTE: the uv path in README is preferred — pip's
+# resolver chokes ("resolution-too-deep") on mineru[all]+vllm together, and uv
+# also picks the correct CUDA build automatically.
+#
+# Host driver here is CUDA 12.2 (NVIDIA 535); cu126 is the forward-compat ceiling
+# that runs on this H100. vllm 0.21 / torch 2.11 are cu130-only -> too new, so we
+# cap to the cu126-buildable range and pull wheels from the cu126 index.
+#
+# Reproduce:
+#   conda env create -f environment.yml && conda activate evidence-ai && pip install -e .
+name: evidence-ai
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - "--extra-index-url=https://download.pytorch.org/whl/cu126"
+      # --- parsing (PDF -> markdown, MinerU2.5 VLM on vLLM) ---
+      - "mineru[all]>=3.0,<4.0"
+      # --- extraction (grounded JSON via local OpenAI-compatible endpoint) ---
+      - "langextract[openai]>=1.5,<2.0"
+      # --- local model serving (MinerU VLM + Qwen3 extractor); cu126-capped ---
+      - "vllm>=0.10.1.1,<0.21"
+      - "torch>=2.6,<2.9"
+      # --- IO / acquisition / upload ---
+      - "huggingface_hub[cli]>=0.24"
+      - "requests>=2.31"
+      - "datasets>=2.19"
+      - "pymupdf>=1.24"
+      - "openai>=1.30"
+      - "pyyaml>=6.0"

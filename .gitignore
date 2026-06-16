@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.so
+
+# Virtual environments (uv .venv lives in-repo here; ~9GB — never commit)
+.venv/
+venv/
+env/
+ENV/
+
+# Local agent / IDE / plan state
+.claude/
+.idea/
+.vscode/
+
+# Generated pipeline outputs & artifacts (large, regenerable, mirrored to the HF bucket)
+outputs/
+test_pdfs/
+parsed/
+*.log
+
+# PDFs and model weights must never enter the repo
+*.pdf
+*.safetensors
+*.bin
+*.gguf
+
+# HF / caches
+.cache/
+*.lock
+
+# OS
+.DS_Store
+Thumbs.db
