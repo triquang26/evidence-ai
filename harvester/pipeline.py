@@ -27,11 +27,27 @@ class Deduplicator:
                 self._merge(by_key[key], r)
             else:
                 by_key[key] = dict(r)
-        return list(by_key.values())
+
+        papers = list(by_key.values())
+        papers = self._filter_venue(papers)
+        self._tag(papers)
+        return papers
 
     def _is_relevant(self, text: str) -> bool:
         t = text.lower()
         return any(k in t for k in self.config.keep_keywords)
+
+    @staticmethod
+    def _filter_venue(papers: list[dict]) -> list[dict]:
+        return [p for p in papers if p.get("venue")]
+
+    @staticmethod
+    def _tag(papers: list[dict]) -> None:
+        for p in papers:
+            tags = []
+            if p.get("is_survey"):
+                tags.append("survey")
+            p["tags"] = tags
 
     @staticmethod
     def _merge(cur: dict, new: dict) -> None:
@@ -44,7 +60,7 @@ class Deduplicator:
 
 
 class Exporter:
-    _FIELDS = ["title", "venue", "year_guess", "arxiv_id", "doi", "url", "is_survey", "source"]
+    _FIELDS = ["title", "venue", "year_guess", "arxiv_id", "doi", "url", "tags", "source"]
 
     def __init__(self, config: Config):
         self.config = config
@@ -76,7 +92,7 @@ class Exporter:
                     "arxiv_id": p.get("arxiv_id"),
                     "doi": p.get("doi"),
                     "url": p.get("url"),
-                    "is_survey": p.get("is_survey"),
+                    "tags": ",".join(p.get("tags") or []),
                     "source": p.get("source"),
                 })
         print(f"Saved: {path}")
