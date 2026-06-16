@@ -31,6 +31,7 @@ class Deduplicator:
         papers = list(by_key.values())
         papers = self._filter_venue(papers)
         self._tag(papers)
+        papers.sort(key=lambda p: self._year(p), reverse=True)
         return papers
 
     def _is_relevant(self, text: str) -> bool:
@@ -48,6 +49,12 @@ class Deduplicator:
             if p.get("venue") and p.get("is_survey"):
                 tags.append("survey+venue")
             p["tags"] = tags
+
+    _YR_RE = re.compile(r"\b(199\d|20[012]\d)\b")
+
+    def _year(self, p: dict) -> int:
+        matches = self._YR_RE.findall(p.get("venue") or "")
+        return max((int(y) for y in matches), default=0)
 
     @staticmethod
     def _merge(cur: dict, new: dict) -> None:
