@@ -35,7 +35,10 @@ class ExtractorConfig:
 
 @dataclass(frozen=True)
 class SourceConfig:
-    kind: str = "arxiv"  # arxiv | local  (use 'local' on firewalled hosts)
+    kind: str = "arxiv"  # arxiv | local | hf_text
+    # local: dir of <paper_id>.pdf pre-downloaded and synced via HF bucket
+    # hf_text: stream full paper text from jamescalam/ai-arxiv on HuggingFace
+    #          (firewalled host, ~100k ML papers 2015-2023, no PDF needed)
     local_dir: str | None = None  # dir of <paper_id>.pdf when kind == 'local'
 
 

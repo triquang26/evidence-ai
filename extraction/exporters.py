@@ -7,7 +7,11 @@ from pathlib import Path
 
 from .schemas import get_schema
 
-_EMPTY = {"", "none", "n/a", "not specified", "not mentioned", "none reported", "0"}
+_EMPTY = {
+    "", "none", "n/a", "not specified", "not mentioned", "none reported", "0",
+    "unspecified", "unknown", "not available", "not provided", "not applicable",
+    "na", "n/a", "tbd", "?", "-",
+}
 # Fields that are experiment-wide: if ANY record in the paper has them, propagate to all records.
 _CONTEXT_FIELDS = ("compute_hardware", "system_framework", "system_precision", "compute_budget")
 _ARXIV_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
@@ -89,6 +93,18 @@ def _provenance(rec: dict) -> dict:
     arxiv_id = rec.get("arxiv_id") or (pid if pid and _ARXIV_RE.match(str(pid)) else "")
     url = rec.get("url") or (f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else "")
     return {"paper_id": pid, "arxiv_id": arxiv_id, "arxiv_url": url, "title": rec.get("title")}
+
+
+def _attr_val(col: str, attrs: dict, ctx: dict) -> str:
+    """Return the best non-placeholder value for `col` from attrs, falling back to ctx."""
+    v = _clean(attrs.get(col) or "")
+    if v.lower() in _EMPTY:
+        v = ""
+    if not v:
+        v = _clean(ctx.get(col) or "")
+        if v.lower() in _EMPTY:
+            v = ""
+    return v
 
 
 def _schema_columns(schema) -> list[str]:
@@ -174,7 +190,8 @@ class CsvExporter:
             row = dict(prov)
             # For sparse context fields, fall back to paper-level context so a results-table
             # record inherits hardware/framework even when those were in the setup section.
-            row.update({c: _clean(attrs.get(c, "") or ctx.get(c, "")) for c in self.columns})
+            # Placeholder values ("unspecified", "unknown", …) are suppressed at both layers.
+            row.update({c: _attr_val(c, attrs, ctx) for c in self.columns})
             row.update({
                 "extraction_text": ext.get("extraction_text"),
                 "char_start": ci.get("start_pos"), "char_end": ci.get("end_pos"),

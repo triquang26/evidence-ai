@@ -1,0 +1,44 @@
+# Firewalled-host demo using HuggingFace text content instead of PDFs.
+# Source: jamescalam/ai-arxiv dataset (streams full paper text, no PDF needed).
+# Coverage: ~100k ML papers 2015-2023.
+#
+# Usage:
+#   python extract_pipeline.py --config configs/hf_text_demo.yaml --no-server
+#
+# Papers to extract are taken from test/papers/papers.jsonl (has arxiv_ids).
+# For papers not in the dataset, status will be "no_pdf" — that is expected.
+run_name: hf_text_demo
+seed: 42
+resolve_citations: true
+input_path: test/papers/papers.jsonl
+out_root: outputs/extract
+corpus_size: 5692
+
+source:
+  kind: hf_text   # stream content from jamescalam/ai-arxiv, no arxiv.org needed
+
+parser:
+  backend: vlm-engine
+  model: opendatalab/MinerU2.5-Pro-2605-1.2B
+  server_url: null
+  extra_args: []
+
+extractor:
+  model_id: Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+  base_url: http://localhost:8003/v1
+  api_key: EMPTY
+  schema: evidence_eval
+  extraction_passes: 1
+  max_workers: 16
+  max_char_buffer: 6000
+  fence_output: true
+  use_schema_constraints: false
+  guided_json: false
+
+server:
+  enabled: false   # assumes vLLM already running on port 8003
+  port: 8003
+  gpu_memory_utilization: 0.85
+  max_model_len: 8192
+  startup_timeout_s: 900
+  extra_args: []

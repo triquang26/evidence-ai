@@ -5,7 +5,9 @@ import sys
 from .config import Config
 
 _SURVEY_RE = re.compile(r"\b(survey|a review|review on|benchmark)\b", re.I)
-_DATASET_ID = "ppxscal/arxiv-metadata-oai-snapshot"
+# librarian-bots dataset streams newest-first (2026→older), so we find recent
+# papers quickly without scanning millions of old records.
+_DATASET_ID = "librarian-bots/arxiv-metadata-snapshot"
 _YEAR_CUTOFF = 2015
 
 

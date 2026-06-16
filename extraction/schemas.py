@@ -125,11 +125,19 @@ _EVIDENCE_PROMPT = textwrap.dedent("""\
       - threats: stated assumptions or limitations ("single seed", "only 1 epoch")
 
     Only extract what literally appears in the text; DO NOT infer or estimate. Use the exact
-    source span for extraction_text. Omit any attribute that is not stated. If a results table
-    compares systems, emit one record per system. Never produce a record without a subject.
-    A subject must be a NAMED system, model, method, dataset, or algorithm — do NOT treat figure
-    legend artifacts (chart line colors/styles such as "Purple Line", "Red (dashed)", "Blue (s)")
-    as subjects.""")
+    source span for extraction_text. If a results table compares systems, emit one record per
+    system. Never produce a record without a subject. A subject must be a NAMED system, model,
+    method, dataset, or algorithm — do NOT treat figure legend artifacts (chart line colors/styles
+    such as "Purple Line", "Red (dashed)", "Blue (s)") as subjects.
+
+    CRITICAL — omission rules:
+    • OMIT any attribute whose value is not explicitly stated in the source text.
+    • NEVER write "unspecified", "unknown", "N/A", "not mentioned", "not stated", or any
+      placeholder — if the value is absent, leave the field out entirely.
+    • system_framework must be a real framework or library (PyTorch, JAX, vLLM, TGI, verl…),
+      not a model name. If only a model name is mentioned, omit system_framework.
+    • system_precision must be a concrete dtype or quantization level (bf16, fp16, int8, fp8…).
+      If not explicitly stated, omit it.""")
 
 _EVIDENCE_EXAMPLES = [
     lx.data.ExampleData(

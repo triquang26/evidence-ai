@@ -58,6 +58,9 @@ class ExtractionPipeline:
             source = build_source("local", str(self.cfg.input_path))
         else:
             source = build_source(self.cfg.source.kind, self.cfg.source.local_dir)
+        # Pre-parse hook: sources like HFTextSource write .md files before fetch so
+        # MinerU's idempotent check finds them and skips re-parsing.
+        source.pre_parse(papers, self.cfg.parsed_dir)
         with self.timer("download"):
             source.fetch(papers, self.cfg.pdf_dir)
         downloaded = []
