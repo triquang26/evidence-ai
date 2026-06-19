@@ -20,6 +20,8 @@ ENV/
 
 # Generated pipeline outputs & artifacts (large, regenerable, mirrored to the HF bucket)
 outputs/
+# Exception: papers.jsonl is the harvested paper list, committed as source of truth
+!outputs/papers.jsonl
 test_pdfs/
 parsed/
 *.log

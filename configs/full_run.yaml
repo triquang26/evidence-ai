@@ -1,0 +1,45 @@
+# Full corpus extraction run — PDFs synced from HF bucket via download_pdfs_local.py
+#
+# On GPU box, after pulling PDFs:
+#   uvx --from 'huggingface_hub>=1.16' hf sync \
+#       hf://buckets/twanghcmut/evidence-ai/pdfs ./pdfs
+#
+#   python extract_pipeline.py --config configs/full_run.yaml
+#   # or override pdf dir at runtime:
+#   python extract_pipeline.py --config configs/full_run.yaml --pdf-dir ./pdfs
+
+run_name: full_run
+seed: 42
+input_path: outputs/papers.jsonl
+out_root: outputs/extract
+corpus_size: 5692
+
+source:
+  kind: local
+  local_dir: ./pdfs          # where GPU box syncs PDFs from HF bucket
+
+parser:
+  backend: vlm-engine
+  model: opendatalab/MinerU2.5-Pro-2605-1.2B
+  server_url: null
+  extra_args: []
+
+extractor:
+  model_id: Qwen/Qwen3-30B-A3B-Instruct
+  base_url: http://localhost:8001/v1
+  api_key: EMPTY
+  schema: evidence_eval
+  extraction_passes: 3
+  max_workers: 20
+  max_char_buffer: 8000
+  fence_output: true
+  use_schema_constraints: false
+  guided_json: false
+
+server:
+  enabled: true
+  port: 8001
+  gpu_memory_utilization: 0.85
+  max_model_len: 32768
+  startup_timeout_s: 600
+  extra_args: []
