@@ -11,12 +11,25 @@ class Config:
     arxiv_sleep: float = 3.0
     title_min_len: int = 12
 
+    # Applied by Deduplicator to ALL sources (OR logic — broad safety net)
     keep_keywords: tuple = (
-        "anomaly", "outlier", "forecast", "predict",
-        "time series", "time-series", "temporal",
-        "detection", "representation", "imputation",
-        "spatiotemporal", "change point", "changepoint",
-        "sensor", "monitoring",
+        "time series", "time-series", "timeseries",
+        "temporal sequence", "multivariate time",
+        "anomaly", "outlier", "change point", "changepoint",
+        "forecasting", "time series forecast",
+        "imputation", "spatiotemporal",
+    )
+
+    # Applied by ArxivHFScraper with AND logic: paper must match ≥1 ts_keyword AND ≥1 task_keyword
+    ts_keywords: tuple = (
+        "time series", "time-series", "timeseries",
+        "temporal sequence", "multivariate time", "univariate time",
+        "time-stamped", "time stamp", "streaming data", "data stream",
+        "sequential time",
+    )
+    task_keywords: tuple = (
+        "anomaly", "outlier", "change point", "changepoint",
+        "forecast", "imputation",
     )
 
     arxiv_cats: frozenset = frozenset({"cs.LG", "stat.ML", "cs.AI", "eess.SP", "cs.DB"})

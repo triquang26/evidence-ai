@@ -70,7 +70,12 @@ class ArxivHFScraper:
         if not (cats & self.config.arxiv_cats):
             return False
         text = ((record.get("title") or "") + " " + (record.get("abstract") or "")).lower()
-        return any(k in text for k in self.config.keep_keywords)
+        # Require BOTH a time-series term AND a task term (AND logic, not OR)
+        # This prevents broad terms like "detection"/"temporal"/"prediction" from
+        # matching unrelated papers (robotics, NLP, vision, etc.)
+        has_ts   = any(k in text for k in self.config.ts_keywords)
+        has_task = any(k in text for k in self.config.task_keywords)
+        return has_ts and has_task
 
     @staticmethod
     def _extract_year(record: dict) -> int | None:
