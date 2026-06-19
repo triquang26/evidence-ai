@@ -22,10 +22,13 @@ After the run, sync to HuggingFace:
 from __future__ import annotations
 
 import argparse
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
 from extraction.config import PipelineConfig
+from extraction.exporters import CsvExporter
 from extraction.orchestrator import ExtractionPipeline
 
 
@@ -37,6 +40,9 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--pdf-dir", default=None, help="Override source.local_dir (dir of <arxiv_id>.pdf files)")
     ap.add_argument("--guided", action="store_true", help="Enable guided_json validation layer")
     ap.add_argument("--no-server", action="store_true", help="Do not manage the vLLM server (already running)")
+    ap.add_argument("--upload-per-paper", metavar="HF_PREFIX",
+                    help="Upload each paper's CSV to this HF bucket prefix after extraction "
+                         "(e.g. hf://buckets/twanghcmut/evidence-ai/extract/test_10)")
     return ap.parse_args()
 
 
@@ -55,7 +61,29 @@ def main() -> None:
     if args.no_server:
         cfg = replace(cfg, server=replace(cfg.server, enabled=False))
 
-    manifest = ExtractionPipeline(cfg).run()
+    on_paper_done = None
+    if args.upload_per_paper:
+        bucket_prefix = args.upload_per_paper.rstrip("/")
+        _exporter = CsvExporter(cfg.extractor.schema)
+        _csv_dir = cfg.run_dir / "papers_csv"
+
+        def on_paper_done(pid: str, rec: dict) -> None:
+            csv_path = _exporter.export_one(rec, _csv_dir)
+            if not csv_path:
+                print(f"  [skip-upload] {pid}: no extractions", file=sys.stderr)
+                return
+            dest = f"{bucket_prefix}/{pid}.csv"
+            result = subprocess.run(
+                ["hf", "buckets", "cp", str(csv_path), dest],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                n_rows = sum(1 for _ in csv_path.open()) - 1  # subtract header
+                print(f"  [uploaded] {pid}.csv ({n_rows} rows) -> {dest}")
+            else:
+                print(f"  [upload-err] {pid}: {result.stderr.strip()}", file=sys.stderr)
+
+    manifest = ExtractionPipeline(cfg, on_paper_done=on_paper_done).run()
     extracted = sum(1 for r in manifest if r["status"] == "extracted")
     print(f"\nDone: {extracted}/{len(manifest)} extracted -> {cfg.run_dir}")
     print(f"Timing report: {cfg.run_dir / 'timing_estimate.txt'}")

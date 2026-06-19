@@ -1,0 +1,44 @@
+# 10-paper test run — validate full pipeline before full corpus
+#
+# Run:
+#   python extract_pipeline.py --config configs/test_10.yaml \
+#       --upload-per-paper hf://buckets/twanghcmut/evidence-ai/extract/test_10
+#
+# Each paper's CSV is uploaded to HF bucket as soon as extraction finishes.
+# After all 10 are done, evidence.csv contains all results combined.
+
+run_name: test_10
+seed: 42
+input_path: test/papers/test_10.jsonl
+out_root: outputs/extract
+corpus_size: 1373
+
+source:
+  kind: local
+  local_dir: ./pdfs
+
+parser:
+  backend: vlm-engine
+  model: opendatalab/MinerU2.5-Pro-2605-1.2B
+  server_url: null
+  extra_args: []
+
+extractor:
+  model_id: Qwen/Qwen3-30B-A3B-Instruct
+  base_url: http://localhost:8001/v1
+  api_key: EMPTY
+  schema: evidence_eval
+  extraction_passes: 3
+  max_workers: 20
+  max_char_buffer: 8000
+  fence_output: true
+  use_schema_constraints: false
+  guided_json: false
+
+server:
+  enabled: true
+  port: 8001
+  gpu_memory_utilization: 0.85
+  max_model_len: 32768
+  startup_timeout_s: 600
+  extra_args: []

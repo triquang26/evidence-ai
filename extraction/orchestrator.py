@@ -20,9 +20,10 @@ class ExtractionPipeline:
     exit); extraction then starts a single Qwen vLLM server via VLLMServer.
     """
 
-    def __init__(self, config: PipelineConfig):
+    def __init__(self, config: PipelineConfig, on_paper_done=None):
         self.cfg = config
         self.timer = StageTimer()
+        self._on_paper_done = on_paper_done  # optional callable(pid, rec) called after each paper
 
     def run(self) -> list[dict]:
         self.cfg.set_seed()
@@ -117,6 +118,8 @@ class ExtractionPipeline:
                 with self.timer("audit"):
                     html = auditor.render(ex.jsonl_path, self.cfg.audit_dir, pid)
                 rec["audit"] = str(html) if html else None
+                if self._on_paper_done:
+                    self._on_paper_done(pid, rec)
 
     def _write_manifest(self, manifest: list[dict]) -> None:
         meta = {

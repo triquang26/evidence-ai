@@ -134,6 +134,25 @@ class CsvExporter:
         lines = jsonl_path.read_text(encoding="utf-8").splitlines()
         return json.loads(lines[0]).get("extractions", []) if lines else []
 
+    def export_one(self, rec: dict, out_dir: Path) -> Path | None:
+        """Write a per-paper CSV immediately after extraction completes.
+
+        Returns the CSV path, or None if the paper has no extracted jsonl yet.
+        """
+        jsonl = rec.get("extracted")
+        if not jsonl or not Path(jsonl).exists():
+            return None
+        prov = _provenance(rec)
+        pid = prov["paper_id"]
+        extractions = self._load(Path(jsonl))
+        main_cols = _PROVENANCE + self.columns + (
+            ["extraction_text", "char_start", "char_end", "alignment_status"]
+            if self.schema.row_per_record else []
+        )
+        rows = self._record_rows(prov, extractions) if self.schema.row_per_record else [self._paper_row(prov, extractions)]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return self._write(out_dir / f"{pid}.csv", main_cols, rows)
+
     def export(self, records: list[dict], run_dir: Path) -> tuple[Path, Path]:
         rows_main, rows_long = [], []
         for rec in records:
