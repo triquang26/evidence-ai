@@ -22,23 +22,22 @@ class Config:
     arxiv_cats: frozenset = frozenset({"cs.LG", "stat.ML", "cs.AI", "eess.SP", "cs.DB"})
 
     awesome_lists: tuple = (
+        # Core time-series AI (anomaly + forecasting + representation)
         ("qingsongedu/awesome-AI-for-time-series-papers", "main"),
         ("qingsongedu/time-series-transformers-review", "main"),
         ("qingsongedu/Awesome-TimeSeries-SpatioTemporal-LM-LLM", "main"),
         ("qingsongedu/Awesome-SSL4TS", "main"),
+        # Forecasting-focused
         ("TongjiFinLab/awesome-time-series-forecasting", "main"),
+        # Anomaly detection TS-specific
         ("lzz19980125/awesome-multivariate-time-series-anomaly-detection-algorithms", "main"),
-        ("mala-lab/Awesome-Anomaly-Detection-Foundation-Models", "main"),
-        ("zhuyiche/awesome-anomaly-detection", "master"),
-        ("hoya012/awesome-anomaly-detection", "master"),
-        ("rob-med/awesome-AD", "master"),
-        ("dsaidgovsg/awesome-anomaly-detection", "master"),
-        ("caiyiqing/awesome-time-series-papers", "main"),
-        ("GZHermit/awesome-time-series", "main"),
+        # Removed: 404 dead links (rob-med, dsaidgovsg, caiyiqing, GZHermit)
+        # Removed: image/video AD mixed lists (hoya012, zhuyiche)
+        # Removed: broad foundation-model AD with heavy vision scope (mala-lab)
     )
 
     arxiv_queries: tuple = (
-        # Anomaly detection
+        # ── Anomaly detection (time-series) ─────────────────────────────────
         "time series anomaly detection",
         "multivariate time series anomaly detection",
         "unsupervised time series anomaly detection",
@@ -52,7 +51,7 @@ class Config:
         "log anomaly detection time series",
         "time series anomaly detection reconstruction",
         "anomaly detection multivariate forecasting",
-        # Forecasting
+        # ── Forecasting ──────────────────────────────────────────────────────
         "time series forecasting deep learning",
         "multivariate time series forecasting neural network",
         "long-term time series forecasting",
@@ -64,25 +63,25 @@ class Config:
         "time series forecasting Informer PatchTST iTransformer",
         "time series forecasting linear model",
         "time series forecasting hybrid model",
-        # Foundation / LLM
+        # ── Foundation / LLM for TS ──────────────────────────────────────────
         "time series foundation model",
         "large language model time series",
         "time series pretrained model zero-shot",
-        "generative model time series synthesis",
-        "time series GPT language model adaptation",
-        # Representation / SSL
+        # Removed: "generative model time series synthesis" (data generation, off-scope)
+        # Removed: "time series GPT language model adaptation" (redundant)
+        # ── Representation / SSL (methods used in AD & forecasting) ──────────
         "time series representation learning",
         "time series self-supervised learning",
         "time series contrastive learning",
         "time series masked autoencoder pretraining",
-        # Methods / domains
+        # ── Supporting methods ───────────────────────────────────────────────
         "temporal graph neural network forecasting",
         "time series diffusion generative model",
         "temporal convolutional network sequence modeling",
         "spatiotemporal prediction deep learning",
         "time series imputation missing data",
-        "time series classification convolutional",
-        "anomaly detection root cause analysis microservice",
         "traffic flow prediction graph network",
-        "time series augmentation data generation",
+        # Removed: "time series classification convolutional" (classification ≠ AD/forecast)
+        # Removed: "anomaly detection root cause analysis microservice" (AIOps, not TS ML)
+        # Removed: "time series augmentation data generation" (augmentation, off-scope)
     )
